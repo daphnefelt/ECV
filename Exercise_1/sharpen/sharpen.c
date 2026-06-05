@@ -16,7 +16,7 @@ typedef unsigned char UINT8;
 
 // Added this func to help get width and height from the ppm instead of hardcoding them
 // Writes the vals into the width and height pointers, plus bc we are reading the header here we might as well save it and track the size
-bool readPPMHeader(const char* filename, int *width, int *height, UINT8 *header, int *headerSize) {
+bool readPPMHeader(const char* filename, int *width, int *height, UINT8 *header, int *headerSize, int *newHeaderSize) {
     FILE* f = fopen(filename, "rb");
     if (!f) return false;
 
@@ -37,7 +37,7 @@ bool readPPMHeader(const char* filename, int *width, int *height, UINT8 *header,
     }
 
     *headerSize = ftell(f); // get the size of the header using current loc in file
-    sprintf((char*)header, "P6 %d %d %d\n", *width, *height, maxVal); // build header w/o comments
+    *newHeaderSize = sprintf((char*)header, "P6 %d %d %d\n", *width, *height, maxVal); // build header w/o comments
     fclose(f);
     return true;
 }
@@ -79,13 +79,15 @@ int main(int argc, char *argv[])
     //printf("Reading header\n");
     UINT8 header[64];
     int headerSize;
+    int newHeaderSize;
 
-    if (readPPMHeader(argv[1], &width, &height, header, &headerSize)) {
+    if (readPPMHeader(argv[1], &width, &height, header, &headerSize, &newHeaderSize)) {
         printf("Width: %d, Height: %d\n", width, height);
     } else {
         printf("Failed to read header\n");
     }
     lseek(fdin, headerSize, SEEK_SET); // skip past header for pixel data
+    printf("headerSize: %d, newHeaderSize: %d, width: %d, height: %d\n", headerSize, newHeaderSize, width, height);
 
     // Now with dim info, set up arrays for RGB data and convolved RGB data
     int size = height * width;
@@ -155,7 +157,7 @@ int main(int argc, char *argv[])
         }
     }
 
-    write(fdout, (void *)header, headerSize);
+    write(fdout, (void *)header, newHeaderSize);
 
     // Write RGB data
     for(i=0; i<height*width; i++)
