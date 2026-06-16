@@ -24,7 +24,7 @@ static void CannyThreshold(int, void*)
 }
 int main( int argc, char** argv )
 {
-  CommandLineParser parser( argc, argv, "{@input | BBB_Frame_100.jpeg | input image}" );
+  CommandLineParser parser( argc, argv, "{@input | BBB_Frame_200.jpeg | input image}" );
   String imgName = parser.get<String>( "@input" );
   src = imread( imgName, IMREAD_COLOR ); // Load an image
   if( src.empty() )
