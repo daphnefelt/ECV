@@ -7,7 +7,7 @@ using namespace std;
 
 int main(int argc, char** argv)
 {
-    string videoPath = "Light-Room-Laser-Spot-with-Clutter.mpeg";
+    string videoPath = "Dark-Room-Laser-Spot-with-Clutter.mpeg";
 
     VideoCapture vcap(videoPath);
     if (!vcap.isOpened()) {
@@ -42,7 +42,8 @@ int main(int argc, char** argv)
         Mat side_by_side;
         hconcat(frame_small, diff_small, side_by_side);
         double r_diff_sum = sum(ch_diff[2])[0];
-        if (r_diff_sum > 7000000){
+        // if (r_diff_sum > 100000){ // get good examples
+        if (r_diff_sum < 50000){ // get bad examples
             string filename = "diff_" + to_string(r_diff_sum) + ".jpg";
             imwrite(filename, side_by_side);
         }
