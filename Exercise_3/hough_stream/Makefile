@@ -1,13 +1,18 @@
 CXX = g++
 CXXFLAGS = -std=c++11 -Wall  -I/usr/include/opencv4
 OPENCV_FLAGS = `pkg-config --cflags --libs opencv4`
-SRC = hough_stream.cpp
-OUT = hough_stream
+SRC1 = hough_lines.cpp
+SRC2 = hough_circles.cpp
+OUT1 = hough_lines
+OUT2 = hough_circles
 
-all: $(OUT)
+all: $(OUT1) $(OUT2)
 
-$(OUT): $(SRC)
-	$(CXX) $(CXXFLAGS) -o $(OUT) $(SRC) $(OPENCV_FLAGS)
+$(OUT1): $(SRC1)
+	$(CXX) $(CXXFLAGS) -o $(OUT1) $(SRC1) $(OPENCV_FLAGS)
+
+$(OUT2): $(SRC2)
+	$(CXX) $(CXXFLAGS) -o $(OUT2) $(SRC2) $(OPENCV_FLAGS)
 
 clean:
-	rm -f $(OUT)
+	rm -f $(OUT1) $(OUT2)
