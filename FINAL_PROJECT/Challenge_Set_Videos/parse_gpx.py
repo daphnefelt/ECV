@@ -3,14 +3,17 @@ import xml.etree.ElementTree as ET
 from datetime import datetime
 import math
 import matplotlib.pyplot as plt
+import numpy as np
 
 # Data syncing
-VIDEO_START_OFFSET = 20.0
+VIDEO_START_OFFSET = 33.0
 VIDEO_DURATION = 60.0
 
 # I/O
-INPUT_FILE = "FINAL_PROJECT/Challenge_Set_Videos/Night_Walk/Night_Walk.gpx"
-OUTPUT_FILE = "FINAL_PROJECT/Challenge_Set_Videos/Night_Walk/Night_Walk.csv"
+NAME = "Nature_Walk"
+INPUT_FILE = f"FINAL_PROJECT/Challenge_Set_Videos/{NAME}/{NAME}.gpx"
+OUTPUT_FILE = f"FINAL_PROJECT/Challenge_Set_Videos/{NAME}/{NAME}.csv"
+IMG_FILE = f"FINAL_PROJECT/Challenge_Set_Videos/{NAME}/{NAME}.jpg"
 
 NS = "http://www.topografix.com/GPX/1/1"
 
@@ -26,6 +29,11 @@ def haversine_meters(lat1, lon1, lat2, lon2): # Flat earth approx, returns (x, y
     x = d_lon * R * math.cos(avg_lat) # east/west
     y = d_lat * R # north/south
     return x, y
+
+def smooth(data, window=5): # moving avg
+    kernel = np.ones(window) / window
+    padded = np.pad(data, window // 2, mode="edge")
+    return np.convolve(padded, kernel, mode="valid")[:len(data)]
 
 def main():
     tree = ET.parse(INPUT_FILE)
@@ -69,18 +77,23 @@ def main():
         return x * cos_a - y * sin_a, x * sin_a + y * cos_a
 
     times, xs, ys = [], [], []
+    for s, lat, lon in windowed:
+        x_m, y_m = haversine_meters(origin_lat, origin_lon, lat, lon)
+        x_m, y_m = rotate(x_m, y_m, initial_angle) # rotate so starting pose is facing +Y
+        t_rel = s - origin_t   # time relative to video start
+        times.append(t_rel)
+        xs.append(x_m)
+        ys.append(y_m)
+
+    # smooth
+    xs = list(smooth(xs, window=5))
+    ys = list(smooth(ys, window=5))
+
     with open(OUTPUT_FILE, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["time_s", "x_m", "y_m"])
-
-        for s, lat, lon in windowed:
-            x_m, y_m = haversine_meters(origin_lat, origin_lon, lat, lon)
-            x_m, y_m = rotate(x_m, y_m, initial_angle) # rotate so starting pose is facing +Y
-            t_rel = s - origin_t   # time relative to video start
-            writer.writerow([f"{t_rel:.2f}", f"{x_m:.3f}", f"{y_m:.3f}"])
-            times.append(t_rel)
-            xs.append(x_m)
-            ys.append(y_m)
+        for t, x, y in zip(times, xs, ys):
+            writer.writerow([f"{t:.3f}", f"{x:.3f}", f"{y:.3f}"])
 
     # plot real quick to verify
     plt.figure(figsize=(6, 6))
@@ -94,6 +107,7 @@ def main():
     plt.axis("equal")
     plt.grid(True)
     plt.tight_layout()
+    plt.savefig(IMG_FILE) # save img
     plt.show()
 
 if __name__ == "__main__":
