@@ -1,8 +1,8 @@
 CXX = g++
-CXXFLAGS = -std=c++17 -Wall  -I/usr/include/opencv4
+CXXFLAGS = -std=c++17 -Wall  -I/usr/include/opencv4 -O2 -lpthread
 OPENCV_FLAGS = `pkg-config --cflags --libs opencv4`
-SRC = track.cpp
-OUT = track
+SRC = generate_path.cpp
+OUT = generate_path
 
 all: $(OUT)
 
