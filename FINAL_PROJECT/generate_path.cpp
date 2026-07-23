@@ -16,7 +16,7 @@
 
 static constexpr int MIN_TRACKS = 30; // need at least this many per frame, otherwise redetect
 static constexpr int MAX_ORB = 500;
-static constexpr bool SAVE_FRAMES = false;
+static constexpr bool SAVE_FRAMES = true;
 static const std::string FRAME_DIR  = "frames";
 static constexpr double FX = 2000.0; // focal length (dtheta = avg_dx / FX)
 static constexpr double ALLOWABLE_DIST_ERR = 0.06; // metric for P and R calcs
@@ -44,48 +44,69 @@ double gps_path_length(const std::vector<GpsPt>& pts) { // total path length hel
     return len;
 }
 
-cv::Mat draw_paths(const std::vector<GpsPt>& gps, const std::vector<GpsPt>& vo, int plot_size = 600, int margin = 50) {
+// Draw both paths on top of each other to compare
+// pass in full GPS path to lock the map bounds, otherwise the bounds will grow w vo and curr gps
+cv::Mat draw_paths(const std::vector<GpsPt>& gps, const std::vector<GpsPt>& vo, int plot_size = 600, int margin = 60, const std::vector<GpsPt>* full_gps = nullptr) {
     // Scaling to fit on screen
+    const std::vector<GpsPt>& bounds_src = full_gps ? *full_gps : gps;
     double min_x=1e9, max_x=-1e9, min_y=1e9, max_y=-1e9;
-    for (auto& p : gps) { min_x=std::min(min_x,p.x); max_x=std::max(max_x,p.x); min_y=std::min(min_y,p.y); max_y=std::max(max_y,p.y); }
-    for (auto& p : vo) { min_x=std::min(min_x,p.x); max_x=std::max(max_x,p.x); min_y=std::min(min_y,p.y); max_y=std::max(max_y,p.y); }
+    for (auto& p : bounds_src) { min_x=std::min(min_x,p.x); max_x=std::max(max_x,p.x); min_y=std::min(min_y,p.y); max_y=std::max(max_y,p.y); }
+    if (!full_gps) for (auto& p : vo) { min_x=std::min(min_x,p.x); max_x=std::max(max_x,p.x); min_y=std::min(min_y,p.y); max_y=std::max(max_y,p.y); }
+    double pad = 0.05 * std::max(max_x-min_x, max_y-min_y);
+    min_x -= pad; max_x += pad; min_y -= pad; max_y += pad;
     double range = std::max(max_x-min_x, max_y-min_y);
+    if (range < 1e-6) range = 1.0;
     double sc = (plot_size - 2.0*margin) / range;
     auto to_px = [&](double x, double y) -> cv::Point {return { (int)(margin+(x-min_x)*sc), (int)(plot_size-margin-(y-min_y)*sc) };};
     cv::Mat img(plot_size, plot_size, CV_8UC3, cv::Scalar(30,30,30));
 
-    // grid lines
+    // grid lines and dist labels
     for (int g = 0; g <= 5; g++) {
         int gx = margin+g*(plot_size-2*margin)/5, gy = margin+g*(plot_size-2*margin)/5;
         cv::line(img,{gx,margin},{gx,plot_size-margin},cv::Scalar(60,60,60),1);
         cv::line(img,{margin,gy},{plot_size-margin,gy},cv::Scalar(60,60,60),1);
+        double wx = min_x + g * range / 5.0;
+        cv::putText(img, cv::format("%.0f", wx), {gx-8, plot_size-margin+20}, cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(160,160,160), 1);
+        double wy = min_y + (5-g) * range / 5.0;
+        cv::putText(img, cv::format("%.0f", wy), {margin-30, gy+4}, cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(160,160,160), 1);
     }
+    // axis titles
+    cv::putText(img, "x (m)", {plot_size/2-20, plot_size-10}, cv::FONT_HERSHEY_SIMPLEX, 0.85, cv::Scalar(160,160,160), 1);
+    cv::putText(img, "y (m)", {5, plot_size/2}, cv::FONT_HERSHEY_SIMPLEX, 0.85, cv::Scalar(160,160,160), 1);
 
     // gps data
     for (size_t i = 1; i < gps.size(); i++)
         cv::line(img, to_px(gps[i-1].x,gps[i-1].y), to_px(gps[i].x,gps[i].y), cv::Scalar(0,220,80), 2);
-    cv::circle(img, to_px(gps.front().x,gps.front().y), 7, cv::Scalar(0,255,0), -1);
-    cv::circle(img, to_px(gps.back().x, gps.back().y),  7, cv::Scalar(0,140,0), -1);
+    if (!gps.empty()) {
+        cv::circle(img, to_px(gps.front().x,gps.front().y), 7, cv::Scalar(0,255,0), -1);
+        cv::circle(img, to_px(gps.back().x, gps.back().y),  7, cv::Scalar(0,140,0), -1);
+    }
     cv::putText(img, "GPS ground truth", {margin,20}, cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0,220,80),  1);
 
     // visual odometry data
     for (size_t i = 1; i < vo.size(); i++)
         cv::line(img, to_px(vo[i-1].x,vo[i-1].y), to_px(vo[i].x,vo[i].y), cv::Scalar(0,180,255), 2);
-    cv::circle(img, to_px(vo.front().x,vo.front().y), 7, cv::Scalar(0,200,255), -1);
-    cv::circle(img, to_px(vo.back().x, vo.back().y),  7, cv::Scalar(0,100,180), -1);
+    if (!vo.empty()) {
+        cv::circle(img, to_px(vo.front().x,vo.front().y), 7, cv::Scalar(0,200,255), -1);
+        cv::circle(img, to_px(vo.back().x, vo.back().y),  7, cv::Scalar(0,100,180), -1);
+    }
     cv::putText(img, "VO estimate", {margin,40}, cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0,180,255), 1);
 
     return img;
 }
 
-cv::Mat draw_frame_pair(const cv::Mat& prev_color, const cv::Mat& color, const std::vector<cv::Point2f>& good_prev_pts, const std::vector<cv::Point2f>& good_pts, const std::vector<int>& good_ids, const std::vector<cv::Scalar>& PALETTE) {
-    // Output image is the ith frame and i-1 frame side by side w/ lines connecting keypoints
+// Frame pair visualization w map being drawn to the right
+cv::Mat draw_frame_pair(const cv::Mat& prev_color, const cv::Mat& color, const std::vector<cv::Point2f>& good_prev_pts, const std::vector<cv::Point2f>& good_pts, const std::vector<int>& good_ids,
+                        const std::vector<cv::Scalar>& PALETTE, const std::vector<GpsPt>& gps_so_far, const std::vector<GpsPt>& vo_so_far, const std::vector<GpsPt>& full_gps) {
     int W = color.cols, H = color.rows;
-    cv::Mat canvas(H, W * 2, CV_8UC3);
+    int map_size = H;
+    cv::Mat canvas(H, W * 2 + map_size, CV_8UC3, cv::Scalar(0,0,0));
     prev_color.copyTo(canvas(cv::Rect(0, 0, W, H))); // prev on left
-    color.copyTo(canvas(cv::Rect(W, 0, W, H))); // curr on right
-    double sum_dx = 0, sum_dy = 0; // tracking displacement for average motion arrow
+    color.copyTo(canvas(cv::Rect(W, 0, W, H))); // curr in middle
+    cv::Mat map_img = draw_paths(gps_so_far, vo_so_far, map_size, 50, &full_gps);
+    map_img.copyTo(canvas(cv::Rect(W * 2, 0, map_size, map_size))); // map on right
 
+    double sum_dx = 0, sum_dy = 0; // tracking displacement for average motion arrow
     for (size_t i = 0; i < good_pts.size(); i++) {
         cv::Scalar col = PALETTE[good_ids[i] % PALETTE.size()];
         cv::Point2f lp = good_prev_pts[i];
@@ -93,7 +114,7 @@ cv::Mat draw_frame_pair(const cv::Mat& prev_color, const cv::Mat& color, const s
         cv::circle(canvas, lp, 5, col, -1);
         cv::circle(canvas, rp, 5, col, -1);
         cv::line(canvas, lp, rp, col, 1);
-        
+
         // add displacement for this keypoint
         sum_dx += good_pts[i].x - good_prev_pts[i].x;
         sum_dy += good_pts[i].y - good_prev_pts[i].y;
@@ -249,7 +270,9 @@ int main(int argc, char* argv[]) {
         }
 
         if (SAVE_FRAMES) {
-            cv::Mat canvas = draw_frame_pair(prev_color, color, good_prev_pts, good_pts, good_ids, PALETTE);
+            std::vector<GpsPt> gps_so_far;
+            for (auto& g : gps_pts) if (g.t <= timestamp) gps_so_far.push_back(g); // only show gps points up to now
+            cv::Mat canvas = draw_frame_pair(prev_color, color, good_prev_pts, good_pts, good_ids, PALETTE, gps_so_far, vo_pts, gps_pts);
             std::string filename = FRAME_DIR + "/frame_" + std::string(5 - std::to_string(saved_count).size(), '0') + std::to_string(saved_count) + ".jpg";
             cv::imwrite(filename, canvas);
             saved_count++;
