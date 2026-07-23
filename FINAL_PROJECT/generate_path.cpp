@@ -19,6 +19,7 @@ static constexpr int MAX_ORB = 500;
 static constexpr bool SAVE_FRAMES = false;
 static const std::string FRAME_DIR  = "frames";
 static constexpr double FX = 2000.0; // focal length (dtheta = avg_dx / FX)
+static constexpr double ALLOWABLE_DIST_ERR = 0.06; // metric for P and R calcs
 
 // Helpers for reading in GPS data
 struct GpsPt { double t, x, y; };
@@ -122,6 +123,7 @@ int main(int argc, char* argv[]) {
     std::string video_path = argv[1];
     cv::VideoCapture cap(video_path);
     if (!cap.isOpened()) { std::cerr << "Can't open " << video_path << "\n"; return 1; }
+    cv::setNumThreads(4); // parellize everything we can inside opencv
     double fps = cap.get(cv::CAP_PROP_FPS); double dt = 1.0 / fps;
     int total_frames = (int)cap.get(cv::CAP_PROP_FRAME_COUNT);
     double total_sec = total_frames / fps;
@@ -172,6 +174,10 @@ int main(int argc, char* argv[]) {
     std::vector<GpsPt> vo_pts; // visual odometry path points
     vo_pts.push_back({0.0, 0.0, 0.0});
     double last_logged_t = 0.0; // won't add every pnt to vo_pts, bc GPS is only 1hz
+
+    // accuracy and speed metrics
+    int TP = 0, FP = 0, FN = 0;
+    int64 start_time = cv::getTickCount();
 
     while (true) {
         if (!cap.read(color) || color.empty()) break;
@@ -224,7 +230,23 @@ int main(int argc, char* argv[]) {
             // step forward at the const speed
             x += fwd_speed * dt * std::cos(theta); y += fwd_speed * dt * std::sin(theta);
         }
-        if (timestamp - last_logged_t >= 1.0) { vo_pts.push_back({timestamp, x, y}); last_logged_t = timestamp;}
+        if (timestamp - last_logged_t >= 1.0) {
+            vo_pts.push_back({timestamp, x, y}); last_logged_t = timestamp;
+
+            // Find closest GPS point to this time for err calcs
+            int idx = (int)std::round(timestamp);
+            GpsPt gps_now = gps_pts[std::min(idx, (int)gps_pts.size()-1)]; // clamp
+
+            double err_x = x - gps_now.x; double err_y = y - gps_now.y; double dist_err = std::sqrt(err_x*err_x + err_y*err_y);
+            float allowable_err = ALLOWABLE_DIST_ERR * path_len;
+            std::printf("CURR ERR: %.2f percent     ", dist_err * 100.0 / path_len);
+            if (num_tracks < MIN_TRACKS)
+                FN++; // couldn't make reliable estimate
+            else if (dist_err <= allowable_err)
+                TP++; // estimate within x% of path length
+            else
+                FP++; // estimate made but too far off         
+        }
 
         if (SAVE_FRAMES) {
             cv::Mat canvas = draw_frame_pair(prev_color, color, good_prev_pts, good_pts, good_ids, PALETTE);
@@ -246,6 +268,16 @@ int main(int argc, char* argv[]) {
         prev_color = color.clone();
         frame_idx++;
     }
+
+    int64 end_time = cv::getTickCount();
+    double elapsed_sec = (end_time - start_time) / cv::getTickFrequency();
+    double avg_fps = total_counted / elapsed_sec;
+    double precision = (TP + FP) ? (double)TP / (TP + FP) : 0.0;
+    double recall = (TP + FN) ? (double)TP / (TP + FN) : 0.0;
+    std::cout << "Average FPS: " << avg_fps << std::endl;
+    std::cout << "TP: " << TP << ", FP: " << FP << ", FN: " << FN << std::endl;
+    std::cout << "Precision: " << precision << std::endl;
+    std::cout << "Recall: " << recall << std::endl;
 
     // Final path comparison plot
     cv::Mat path_img = draw_paths(gps_pts, vo_pts);
